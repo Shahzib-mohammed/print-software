@@ -1,0 +1,77 @@
+Implementation Plan
+PrintQueue — Self-Service Print-Shop Platform
+Written for a 3–6 developer team building toward a real production launch (not a solo MVP), using the module/feature split from the TRD's Project Structure section so people can own a domain end-to-end without blocking each other.
+
+Suggested ownership split (adjust to actual headcount):
+
+Dev A/B — Customer ordering flow (modules/orders, modules/pricing, features/customer-order)
+Dev C — Payments & platform onboarding (modules/payments, modules/subscriptions)
+Dev D — Local Printer Agent (modules/printers + the standalone desktop agent)
+Dev E — Shop admin dashboard (features/shop-admin, modules/products)
+Dev F (or shared) — Platform admin, infra, security/hardening
+Phase 0 — Foundations & Scaffolding (Weeks 1–2)
+Finalize open questions from PRD §8 (monetization model, multi-printer scope, OTP requirement, file format limits).
+Set up cloud infra: Postgres, object storage, hosting environment, CI/CD.
+Select and apply for the payment gateway's sub-merchant/Route product (this has a lead time for approval — start early).
+Scaffold the backend as Feature-Based modules (modules/auth, shops, orders, pricing, products, payments, printers, subscriptions) and the frontend as Feature-Based with role-based routing (features/customer-order, shop-admin, platform-admin, auth) per TRD §8 — this is what lets the team split by domain from day one.
+Define multi-tenant data model (Backend Schema doc) and stand up base API skeleton with auth (JWT + refresh tokens, roles: customer, shop_admin, platform_admin).
+Environment/secrets setup: .env for all services, no secrets committed, CI checks for accidental key leaks.
+Phase 1 — Core Customer Ordering Flow (Weeks 3–5)
+Upload endpoint (pre-signed URL) + file-type/size validation on both frontend (UX) and backend (source of truth).
+PDF normalization pipeline (DOCX/image → PDF) + page counting.
+Price calculation engine using price_rules, standard API response shape ({ success, message, data }) and correct HTTP status codes throughout.
+Customer UI: upload → options → price → payment screens, with loading states (upload progress, price-calculating spinner), error states (upload failure, payment failure, retry action), and empty/first-time states.
+Integrate payment gateway checkout (online path only first); rate-limit the upload and payment-initiation endpoints.
+Order status tracking (created → paid) with webhook handling for payment confirmation, idempotent on gateway_payment_id.
+Phase 2 — Local Printer Agent (Weeks 5–8, parallel to Phase 1 backend work)
+Build the Windows-first desktop agent (Electron or Node service + tray icon).
+Printer discovery (wireless-first, USB fallback) using OS printer APIs.
+WebSocket/polling connection to cloud for new paid jobs, authenticated per shop.
+Job download + print submission + status reporting back to cloud.
+Offline-buffering behavior for intermittent connectivity.
+Packaging/installer + auto-start on boot + simple settings UI (select default printer).
+Phase 3 — Shopkeeper Admin Dashboard (Weeks 6–9, parallel)
+Home overview (today's/monthly counters).
+Live order queue with pay-at-counter confirm/reject actions; toast notifications instead of browser alerts.
+Pricing editor (price_rules CRUD) with numeric-bounds validation.
+Product catalog manager (products CRUD, image upload with compression/WebP conversion).
+Order history with pagination and a debounced search/filter (300–500 ms).
+Printer/agent status view + retention window setting.
+Full responsive pass (mobile/tablet/laptop/desktop) — shopkeepers often manage this from a phone between customers.
+Phase 4 — Offline/Pay-at-Counter Flow & Retention (Weeks 9–10)
+Full "pay at counter" order lifecycle (pending → shopkeeper confirms → paid).
+Auto-deletion pipeline: storage lifecycle rule + scheduled sweep job + deletion_logs.
+End-to-end privacy/security review (encryption at rest, signed URL expiry, RLS policies).
+Phase 5 — Security, Performance & Accessibility Hardening (Weeks 10–11)
+(New phase, pulled from the team's Production-Ready Checklist — treated as launch-blocking, not post-launch polish.)
+
+Security: HTTPS + secure headers (Helmet-equivalent); parameterized queries/ORM to prevent SQL/NoSQL injection; CSRF protection on any cookie-based admin session; HttpOnly/Secure/SameSite cookies; upload MIME-type + extension allowlist enforced server-side.
+Backend hardening: bcrypt password hashing for shop-admin/platform-admin accounts; rate limiting extended to login/OTP endpoints; CORS locked to platform domains; structured logging of errors, requests, and key business events.
+Performance: Gzip/Brotli compression; API-level caching for price lists/product catalogs (short TTL, Redis optional); CDN for product/shop images; code-splitting per role bundle; lazy-loaded routes.
+Accessibility: semantic HTML, labeled inputs, visible focus states, keyboard navigation, and color-contrast pass across all three surfaces — including the order-status badges already flagged in the UI/UX brief.
+Technical SEO (marketing/sign-up pages only, per TRD §9.5): favicon, robots.txt, meta title/description.
+Phase 6 — Platform Admin & Onboarding (Weeks 11–13)
+Shop onboarding flow, including guiding shopkeepers through the gateway's sub-merchant KYC.
+QR code + shop-slug generation.
+Platform-wide metrics dashboard.
+Subscription/commission billing hooks.
+Phase 7 — Testing, Pilot & Hardening (Weeks 13–15)
+Manual test pass: login/OTP, full order lifecycle (both payment paths), file upload, printer-agent handoff, pricing/product CRUD, pagination.
+Cross-browser (Chrome, Firefox, Edge, Safari) and cross-device (Android, iPhone, tablet, desktop) testing.
+Pilot with 2–3 real shops (ideally different printer setups: one wireless, one USB-only).
+Load-test the upload → page-count → price pipeline for large multi-page files.
+Failure-mode testing: printer offline, agent crash/restart, payment webhook delays, internet drop mid-print.
+Collect shopkeeper feedback on the admin dashboard's day-to-day usability; iterate.
+Phase 8 — Launch & Scale-Out (Week 16+)
+Pre-deploy checklist: production build passes, env vars set, DB migrated, SSL active, custom domain connected, no console/network errors, all routes resolve, a real 404 page exists.
+Public onboarding flow for new shops (self-serve sign-up + gateway KYC).
+Marketing assets: printable QR-stand templates for shop counters.
+Analytics & monitoring live: error tracking (Sentry-class tool), API logs, uptime/performance monitoring.
+Roadmap candidates for V1.1: regional language UI, multi-printer routing per shop, WhatsApp order-status notifications, loyalty/discount codes, dark theme.
+Team & Dependencies Checklist
+ Payment gateway sub-merchant application submitted (longest external lead time — start Week 1).
+ Object storage + lifecycle rules configured before any real customer file is accepted.
+ At least one Windows PC + one wireless and one USB printer available for Phase 2 testing.
+ Legal review of the document-retention/deletion policy wording shown to customers.
+ Error tracking, logging, and rate-limiting in place before Phase 7 pilot (not deferred to post-launch).
+ SSL certificate and custom domain arranged ahead of Phase 8.

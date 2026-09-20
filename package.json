@@ -1,0 +1,15 @@
+{
+  "name": "flash-print",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Flash Print (PrintQueue) — Self-Service Print-Shop Platform",
+  "scripts": {
+    "dev": "node dev.js",
+    "dev:all": "node dev.js",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:agent": "npm --prefix printer-agent run dev",
+    "build": "npm --prefix frontend run build && npm --prefix backend run build",
+    "start": "npm --prefix backend run start"
+  }
+}

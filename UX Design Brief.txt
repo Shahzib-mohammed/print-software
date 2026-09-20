@@ -1,0 +1,70 @@
+UI/UX Design Brief
+PrintQueue — Self-Service Print-Shop Platform
+0. App Structure Note
+The customer flow, shop admin dashboard, and platform admin dashboard ship as one app with role-based routes, not three separate apps — a shopkeeper and their staff sign into the same domain a customer lands on via QR code, just routed to a different layout. Design each surface as its own self-contained section (matching the frontend's Feature-Based code structure in the TRD), sharing a common design-token set (color, type, spacing) so the product feels like one coherent system rather than three bolted-together tools.
+
+1. Design Principles
+Zero-friction for the customer. No app install, no mandatory sign-up. Scan → upload → pay → done. Every screen should be usable one-handed on a phone, often on a slow shop Wi-Fi.
+Confidence over cleverness for the shopkeeper. Shopkeepers are not necessarily tech-savvy. The admin dashboard should read like a simple ledger/counter app, not a "startup dashboard."
+Trust signals around privacy. Since documents can be sensitive, the customer flow should visibly communicate "your file will be auto-deleted in 25 hours" — this is a selling point, not fine print.
+Speed perception. Show progress at every step (uploading %, page-counting spinner, "sending to printer", "printing now") so the customer never wonders if something is stuck.
+2. Key Screens — Customer Flow
+2.1 Landing / Upload Screen (post-QR scan)
+Shop name/logo at top (branded per tenant).
+Large, obvious "Upload Document" drop zone / camera-scan option.
+Accepted formats shown clearly (PDF, DOCX, JPG/PNG).
+Small trust badge: "🔒 Auto-deleted after 25 hours."
+2.2 Options & Price Screen
+Thumbnail/preview of the document with detected page count.
+Toggle: B&W / Color
+Toggle: Single-sided / Double-sided
+Dropdown: Paper type (if shop offers more than plain A4)
+Stepper: Number of copies
+Optional add-ons list (from shop's product catalog: spiral binding, extra pages, pen, etc.) as simple checkboxes/cards with price.
+Live running total pinned at the bottom, updates instantly as options change.
+2.3 Payment Screen
+Two clear buttons: Pay Now (UPI/Card) and Pay at Counter.
+If "Pay Now": redirect to gateway's UPI/card checkout (standard, recognizable UI).
+If "Pay at Counter": show order code/number the customer tells the shopkeeper, and a "waiting for shop to confirm" status.
+2.4 Order Status Screen
+Simple vertical stepper: Received → Paid → Printing → Ready.
+Order ID + shop name for reference.
+Digital receipt (downloadable/shareable) once paid.
+3. Key Screens — Shopkeeper Admin Dashboard
+3.1 Home / Overview
+Two big counters at top: Prints Today, Revenue Today (and a toggle to switch to "This Month").
+Below: Live Order Queue — cards for each order showing customer's chosen options, status, and a "Confirm Payment" button for pay-at-counter orders.
+3.2 Pricing Editor
+Simple table: B&W per page, Color per page, Double-sided discount/surcharge, Paper types with per-type pricing.
+Changes save immediately with a confirmation toast; effective for new orders right away.
+3.3 Product Catalog Manager
+Card/list view of products (e.g. Pen ₹10, Extra Color ₹5) with add/edit/delete.
+Each product: name, price, optional image, optional color/variant, quantity in stock (optional field).
+3.4 Order History & Billing
+Filterable/searchable table: date, order ID, amount, payment method, status.
+Export to CSV/PDF for accounting.
+3.5 Printer & Retention Settings
+Shows connected printer(s) (from the Local Agent) with connection type (Wireless/USB) and status (Online/Offline).
+Retention window setting (default 25 hrs, adjustable within platform-allowed range).
+4. Key Screens — Platform Admin
+Shop directory (list of tenants, subscription status, onboarding status with gateway KYC).
+Aggregate metrics: total shops, total orders, GMV, active vs. inactive shops.
+Shop detail view: usage history, support flags.
+5. Visual Direction
+Tone: Clean, utilitarian, trustworthy — closer to a fintech receipt app than a flashy consumer app. Print shops serve all ages, so avoid trendy/obscure UI patterns.
+Color: A neutral base (white/light gray) with one confident accent color for primary actions (e.g., "Pay Now," "Confirm"). Green/blue accents read as "trustworthy + transactional" in this context.
+Typography: Highly legible sans-serif at generous sizes — many customers will be on small/older phone screens in bright shop lighting.
+Components: Large tap targets, minimal text entry (mostly taps/toggles), progress indicators on every async action (upload, payment, print).
+Branding per shop: Allow each shop to set its own logo/name at the top of the customer flow, so it feels like "this shop's ordering page," not a third-party app — this builds shopkeeper buy-in.
+6. Accessibility & Localization Notes
+Support for regional language toggle on the customer screen is worth prioritizing early, given the customer base (e.g., Hindi/Telugu/etc. alongside English) — flagged as a V1.1 candidate if not in initial launch.
+Ensure color-blind-safe status indicators (don't rely on color alone for "paid" vs "pending").
+Semantic HTML, labeled inputs, visible keyboard-focus states, and adequate contrast across all three surfaces — this is a launch requirement, not a later polish pass (see TRD §9.6).
+7. Loading, Error & Empty States (required on every screen)
+Per the team's production-readiness checklist, no screen ships without all three:
+
+State	Where it matters most	Treatment
+Loading	File upload %, page-count/price calculation, payment processing, print-job status	Skeletons for content, a spinner or progress bar for a discrete action, button-level loading state so a "Pay Now" tap can't be double-fired
+Error	Upload failure, payment failure, expired/invalid QR link, session expiry (401), permission issues (403), server errors (500)	Plain-language message + a clear retry action; never a raw error code or stack trace shown to a shopkeeper or customer
+Empty	No orders yet today, no products added yet, order history with no results for a filter	A short, specific message plus the obvious next action ("Add your first product") rather than a bare "No data"
+Buttons throughout the app need explicit hover/active/disabled/loading states, and all in-app confirmations (pricing saved, product added, payment confirmed) use an in-app toast rather than a browser alert().

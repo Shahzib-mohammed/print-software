@@ -1,0 +1,187 @@
+Backend Schema Document
+PrintQueue — Self-Service Print-Shop Platform
+Database: PostgreSQL, multi-tenant via shop_id on every tenant-scoped table.
+
+1. Entity Relationship Overview
+has
+
+defines
+
+sells
+
+receives
+
+owns
+
+has
+
+contains
+
+contains
+
+has
+
+generates
+
+uses
+
+produces
+
+SHOPS
+
+SHOP_ADMINS
+
+PRICE_RULES
+
+PRODUCTS
+
+ORDERS
+
+PRINTERS
+
+SUBSCRIPTIONS
+
+ORDER_ITEMS
+
+ORDER_FILES
+
+PAYMENTS
+
+PRINT_JOBS
+
+DELETION_LOGS
+
+2. Core Tables
+shops
+Column	Type	Notes
+id	uuid, PK	
+name	text	
+slug	text, unique	used in QR/URL
+logo_url	text	
+retention_hours	int, default 25	configurable within platform min/max
+gateway_submerchant_id	text	Razorpay Route / Cashfree linked account ID
+status	enum(active, suspended, onboarding)	
+created_at	timestamptz	
+deleted_at	timestamptz, nullable	soft delete — an offboarded shop's historical orders/payments stay resolvable
+shop_admins
+Column	Type	Notes
+id	uuid, PK	
+shop_id	uuid, FK → shops	
+name	text	
+phone / email	text	login identity
+password_hash	text	
+role	enum(owner, staff)	
+price_rules
+Column	Type	Notes
+id	uuid, PK	
+shop_id	uuid, FK	
+print_mode	enum(bw, color)	
+sided	enum(single, double)	
+paper_type	text	e.g. "A4 70gsm", "A4 Glossy"
+price_per_page	numeric(10,2)	
+effective_from	timestamptz	history kept for auditing past orders' pricing
+products (add-ons / catalog items)
+Column	Type	Notes
+id	uuid, PK	
+shop_id	uuid, FK	
+name	text	e.g. "Pen", "Spiral Binding"
+price	numeric(10,2)	
+image_url	text	
+color/variant	text, nullable	
+stock_qty	int, nullable	optional
+is_active	boolean	
+deleted_at	timestamptz, nullable	soft delete — removing a product shouldn't break historical order_items that reference it
+orders
+Column	Type	Notes
+id	uuid, PK	shown to customer as short order code too
+shop_id	uuid, FK	
+customer_phone	text, nullable	optional, for status/receipt
+status	enum(created, pending_payment, paid, printing, completed, cancelled, failed)	
+payment_method	enum(online, cash, split)	
+total_amount	numeric(10,2)	
+created_at / updated_at	timestamptz	
+order_items
+Column	Type	Notes
+id	uuid, PK	
+order_id	uuid, FK	
+type	enum(print, product)	
+product_id	uuid, FK, nullable	for add-ons
+print_mode / sided / paper_type	—	snapshot of chosen print options, if type=print
+page_count	int, nullable	
+copies	int	
+unit_price	numeric(10,2)	price snapshot at order time
+line_total	numeric(10,2)	
+order_files
+Column	Type	Notes
+id	uuid, PK	
+order_id	uuid, FK	
+storage_key	text	path in object storage
+original_filename	text	
+page_count	int	
+converted_pdf_key	text, nullable	normalized PDF used for printing
+expires_at	timestamptz	created_at + shop.retention_hours
+deleted_at	timestamptz, nullable	
+payments
+Column	Type	Notes
+id	uuid, PK	
+order_id	uuid, FK	
+gateway	text	e.g. "razorpay"
+gateway_payment_id	text	
+amount	numeric(10,2)	
+status	enum(initiated, success, failed, refunded)	
+method	enum(upi, card, netbanking, cash)	
+shop_payout_status	enum(pending, settled)	via Route/Split
+raw_webhook_payload	jsonb	for audit/debug
+created_at	timestamptz	
+printers
+Column	Type	Notes
+id	uuid, PK	
+shop_id	uuid, FK	
+name	text	as registered on shop PC
+connection_type	enum(wireless, usb)	
+is_default	boolean	
+last_seen_at	timestamptz	heartbeat from Local Agent
+status	enum(online, offline)	
+print_jobs
+Column	Type	Notes
+id	uuid, PK	
+order_id	uuid, FK	
+printer_id	uuid, FK, nullable	assigned printer
+status	enum(queued, sent_to_agent, printing, completed, failed)	
+attempts	int	for retry logic
+error_message	text, nullable	
+updated_at	timestamptz	
+deletion_logs
+Column	Type	Notes
+id	uuid, PK	
+order_file_id	uuid, FK	
+deleted_at	timestamptz	
+method	enum(lifecycle_rule, scheduled_job, manual)	
+subscriptions (platform billing to shops)
+Column	Type	Notes
+id	uuid, PK	
+shop_id	uuid, FK	
+plan	text	
+commission_pct	numeric(5,2), nullable	if commission-based
+status	enum(active, past_due, cancelled)	
+renews_at	timestamptz	
+3. Multi-Tenancy & Isolation
+Every tenant-scoped table carries shop_id; PostgreSQL Row-Level Security (RLS) policies restrict each API request's DB session to its authenticated shop_id (shop-admin logins) — platform-admin roles bypass RLS via a separate elevated role.
+Object storage keys are namespaced per shop (/{shop_id}/orders/{order_id}/...) so a storage-level leak between tenants is structurally harder.
+4. Table Ownership by Module
+Matches the Feature-Based backend structure in TRD §8.1, so each dev/module owns a clear slice of the schema:
+
+Module	Tables owned
+modules/shops	shops
+modules/auth	shop_admins
+modules/pricing	price_rules
+modules/products	products
+modules/orders	orders, order_items, order_files, deletion_logs
+modules/payments	payments
+modules/printers	printers, print_jobs
+modules/subscriptions	subscriptions
+5. Indexing Notes
+orders(shop_id, status, created_at) — for the live queue and daily/monthly counters.
+order_files(expires_at) — for the deletion sweep job.
+printers(shop_id, status) — for agent health checks.
+payments(gateway_payment_id) unique — for webhook idempotency.

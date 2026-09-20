@@ -1,0 +1,73 @@
+Product Requirements Document (PRD)
+PrintQueue — Self-Service Print-Shop Platform
+Version: 0.1 (Draft)  |  Date: 19 Sep 2026  |  Owner: Founder / Product
+
+1. Problem Statement
+Local print shops in India still run a manual, WhatsApp-based workflow:
+
+#	Problem	Impact
+1	Customer must physically visit, wait for the shopkeeper to be free, send the file over WhatsApp, and wait again for download + print	Slow, frustrating, doesn't scale during rush hours
+2	If the shop is busy, the customer often leaves	Direct revenue loss for the shopkeeper
+3	Sensitive documents (ID proofs, certificates, contracts) sit in the shopkeeper's WhatsApp/phone gallery indefinitely unless manually deleted	Privacy risk, no audit trail
+4	No proper billing system	No accounting, no daily/monthly visibility, disputes over price
+2. Product Vision
+A multi-tenant SaaS platform that any print shop can sign up for. Each shop gets its own branded ordering page (reached via a shop-specific QR code), a pricing/product configuration panel, and a printer-connected local agent that turns paid orders into finished prints — with zero manual file handling by the shopkeeper.
+
+3. Target Users
+Primary: Shopkeepers — small/medium print & stationery shop owners who want to reduce walk-in friction and get proper billing.
+Secondary: Customers/Walk-ins — students, office-goers, and general public who need a document printed quickly, often waiting in the shop.
+Tertiary: Platform Admin (you) — manages tenant onboarding, subscription billing, and platform-wide monitoring.
+4. Goals & Success Metrics
+Goal	Metric
+Reduce time-to-print	Median time from "scan QR" to "print starts" < 90 seconds for a paid order
+Reduce walk-away rate	% of shop visits that convert to a completed order (tracked per shop)
+Give shopkeepers real billing	100% of paid orders reflected in daily/monthly reports, exportable
+Protect customer privacy	100% of uploaded files auto-purged within the retention window, verifiable via logs
+Platform adoption	Number of active shops onboarded per month
+5. Scope (V1)
+5.1 In Scope
+Multi-tenant onboarding: each shop = its own tenant, own QR code, own pricing, own product catalog.
+Customer-facing ordering flow: scan QR → upload document(s) → configure print options → see price → pay (online gateway or offline/cash) → job auto-queues to the shop's printer.
+Automatic page-count and price calculation based on shop's own price table (B&W/color, single/double-sided, paper size/type).
+A local printer agent installed on the shop's PC that pulls paid jobs from the cloud and sends them to whichever printer is attached (wireless first, USB fallback).
+Shopkeeper Admin Dashboard: today's/this-month's print & revenue counts, price editor, product catalog (pens, staples, extra color charge, etc.), offline-payment confirmation queue, order history.
+Platform Admin Dashboard: shop onboarding, subscription status, platform-wide usage.
+Payment: online via a standard payment gateway (UPI/cards through Razorpay/Cashfree/PayU class provider) settling directly to the shop's own bank account; offline cash; split cash+UPI.
+Auto-deletion of uploaded documents after a fixed retention window (default 25 hours), with a deletion log for compliance/trust.
+5.2 Out of Scope (V1)
+Direct integration with a shopkeeper's personal PhonePe/GPay/Paytm account (no public API exists for this) — replaced by a standard gateway, see TRD §4.
+Native mobile apps (V1 is a responsive web app, installable as a PWA).
+Multi-printer load balancing across branches (single PC + its attached printer(s) per shop in V1).
+Inventory/stock management beyond simple product price list.
+6. User Stories
+Customer
+
+As a customer, I scan a QR code at the shop counter and land on that shop's ordering page without installing anything.
+As a customer, I upload one or more files and immediately see the page count and the price, broken down by option (color, sides, paper).
+As a customer, I choose color/B&W, single/double-sided, and paper type, and see the price update live.
+As a customer, I pay via UPI/card and get a confirmation + order ID; the shopkeeper does not need to touch my file.
+As a customer, if I prefer, I can choose "pay at counter" and the shopkeeper confirms my payment before printing starts.
+As a customer, I trust that my document is deleted automatically after a short window.
+Shopkeeper
+
+As a shopkeeper, I log into my dashboard and see today's and this month's order/revenue totals at a glance.
+As a shopkeeper, I can change my B&W/color/paper prices any time, and new prices apply immediately to new orders.
+As a shopkeeper, I can add extra products (pens, staples, spiral binding) with their own prices, shown as add-ons during customer checkout.
+As a shopkeeper, when a customer chooses "pay at counter", I get a real-time notification and can accept/reject before the print job is released to my printer.
+As a shopkeeper, I don't have to do anything printer-specific beyond having my printer connected to my shop PC — the agent handles the rest.
+Platform Admin
+
+As the platform admin, I can onboard a new shop, generate its unique QR code, and set its subscription plan.
+As the platform admin, I can see aggregate usage (active shops, total orders, GMV) across the platform.
+7. Key Constraints & Assumptions
+This is being built by a small funded team (3–6 developers) for a real production launch, not a solo MVP — the TRD's technical structure and the Implementation Plan's phasing assume that team size, and the team's own Production-Ready Checklist is treated as a launch requirement (see TRD §9), not optional polish.
+The customer ordering page, shop admin dashboard, and platform admin dashboard ship as one application with role-based routes, rather than three separate apps.
+Printer drivers are assumed pre-installed on the shop's PC (out of scope for the agent to install drivers).
+Internet connectivity at the shop is required for the agent to fetch jobs and for card/UPI payment to work; offline/cash flow should degrade gracefully if internet briefly drops (queue locally, sync later).
+Legal/compliance: since documents may be sensitive (ID proofs etc.), the retention/deletion policy and encryption-at-rest are treated as a hard requirement, not a nice-to-have.
+Pricing model for the platform itself (subscription fee, per-print commission, or both) is a business decision to be finalized before pricing UI is built — flagged as an open question below.
+8. Open Questions
+Platform monetization: flat monthly SaaS fee per shop, a small commission per transaction, or both?
+Do we need multi-printer support per shop in V1 (e.g., separate B&W and color printers), or is "one default printer" acceptable for launch?
+Should the customer-facing page require a phone number/OTP (for order lookup / dispute resolution) or stay fully anonymous?
+Minimum/maximum file size and supported formats (PDF only vs. PDF+DOCX+images)?

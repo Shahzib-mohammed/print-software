@@ -1,0 +1,167 @@
+Technical Requirements Document (TRD)
+PrintQueue — Self-Service Print-Shop Platform
+Version: 0.1 (Draft)  |  Date: 19 Sep 2026
+
+1. System Overview
+Three cooperating pieces, per the multi-tenant model:
+
+Cloud Platform (multi-tenant web app + API + database) — where customers order and shopkeepers/admins manage things.
+Local Printer Agent — a small background app installed on each shop's PC. Polls (or receives push via WebSocket) new paid jobs for that shop, downloads the file, and sends it to the attached printer.
+Payment Gateway Integration — a standard third-party gateway (Razorpay / Cashfree / PayU class), used in Route/Marketplace/Connected-Account mode so money settles into each shop's own bank account, not a shared pool.
+Customer phone/browser        Shop PC (local agent)         Cloud
+      |                              |                         |
+      |-- scan QR / open link ------------------------------->|
+      |<---- shop's ordering page ------------------------------|
+      |-- upload file + options -------------------------------->|  (stored, page-counted, priced)
+      |-- pay (gateway) or "pay at counter" --------------------->|
+      |                              |<--- new paid job (push) --|
+      |                              |-- send to printer (wireless/USB) --|
+      |                              |-- job status update ------>|
+      |<-------------- order status (printing/done) --------------|
+2. Why Not "Get Their Payment API" (PhonePe/GPay/Paytm/Bank Apps)
+Consumer UPI apps (PhonePe, Google Pay, Paytm personal accounts, bank apps like ICICI iMobile) do not expose a public API for third-party websites to trigger payments into an individual's personal account. UPI collect/payment APIs are only issued to:
+
+Licensed Payment Aggregators/Gateways (Razorpay, Cashfree, PayU, Instamojo, etc.), or
+Banks directly, for merchants who set up a current account + merchant VPA.
+Recommendation: Onboard each shop as a "sub-merchant"/"linked account" under one of these gateways' Route (Razorpay) / Easy Split (Cashfree) / Marketplace (PayU) product. This gives:
+
+A UPI/QR/card checkout on the customer side (looks and feels the same to the customer).
+Automatic settlement split so money lands directly in the shop's own bank account (platform can optionally take a commission cut automatically).
+KYC of the shopkeeper is handled by the gateway's onboarding flow (Aadhaar/PAN/bank details) — the platform does not need to build KYC itself.
+This replaces the original idea of "get their payment API for every print ID" — the gateway is the API, and each shop is a linked sub-account under it, still using UPI/PhonePe/GPay because those apps are simply UPI clients that will show up as a payment option in the gateway's UPI checkout regardless of gateway.
+
+3. Tech Stack (proposed)
+Layer	Choice	Notes
+Frontend (customer + admin)	React (Next.js), Tailwind	Responsive, installable as PWA for the customer flow
+Backend API	Node.js (NestJS/Express) or Django	REST + WebSocket for realtime job push
+Database	PostgreSQL	Multi-tenant via shop_id column on every table (row-level isolation)
+File storage	S3-compatible object storage (e.g., AWS S3 / Wasabi / Cloudflare R2)	Server-side encryption, lifecycle rule auto-deletes objects after retention window
+Realtime	WebSocket (Socket.IO) or MQTT	Push new paid jobs to the shop's local agent instantly
+Local Printer Agent	Lightweight desktop app (Electron or a small Python/Node service + system tray icon)	Runs on shop PC, auto-starts with Windows, talks to cloud over HTTPS/WebSocket
+Printing	OS print spooler via CUPS (if Linux) / Windows Print API / node pdf-to-printer or similar	Print via whichever driver is already installed; agent just picks the OS's default (or configured) printer
+Payments	Razorpay Route / Cashfree Easy Split (sub-merchant model)	UPI, cards, netbanking
+Page counting	pdf-lib / pdfinfo (poppler) for PDFs; convert DOCX→PDF via LibreOffice headless before counting	Needed to price the job
+Hosting	Any cloud (AWS/GCP/Azure) or managed PaaS (Render/Railway) for MVP	Scale later per tenant traffic
+Auth	JWT-based sessions; separate roles: customer (mostly anonymous/OTP), shop_admin, platform_admin	
+4. Printer Connectivity — Detailed Approach
+Per the decision to run on the shop's own PC:
+
+Agent installed once on the shop PC (Windows-first, since that's most common in Indian shops); auto-starts on boot.
+On startup, the agent enumerates available printers via the OS printer API.
+Connection preference order:
+Try wireless/network printer first (Wi-Fi Direct / IPP / printer already added as a network printer in Windows) — no cable needed, works even if PC and printer are in different corners of the shop.
+Fall back to USB-connected printer if no wireless printer is available or reachable.
+Printer drivers are assumed pre-installed by the shopkeeper (standard practice) — the agent does not manage driver installation, only submits print jobs to whatever printer is registered with the OS.
+Shopkeeper can select the default printer (and optionally a second printer, e.g. color vs. B&W) from a simple settings screen in the agent's tray UI.
+Agent reports job status (queued → printing → completed/failed) back to the cloud so the customer's order status updates live and the shop dashboard reflects it.
+Offline resilience: if the shop's internet drops, the agent keeps any already-downloaded jobs queued locally and continues printing; new jobs simply wait until connectivity resumes.
+5. Document Handling & Retention
+Upload goes directly to object storage (pre-signed upload URL) — the app server never buffers the whole file in memory.
+On upload, a background worker:
+Converts non-PDF files (DOCX, images) to PDF for consistent page counting and printing.
+Counts pages, checks file size/type against limits.
+Computes price from the shop's live price table + selected options.
+Auto-deletion after 25 hours (configurable per shop within platform limits):
+Object storage lifecycle rule deletes the file automatically.
+A scheduled job also explicitly deletes the DB row and file if the lifecycle rule hasn't fired yet (belt-and-suspenders), and writes a deletion log entry (order ID, timestamp, "deleted") for audit/trust purposes — the content itself is never logged.
+Files are encrypted at rest; access URLs are short-lived, signed, and single-purpose (agent-only).
+6. Non-Functional Requirements
+Category	Requirement
+Multi-tenancy	Full data isolation per shop (shop_id scoping + row-level security in Postgres)
+Availability	Cloud platform should degrade gracefully — if cloud is briefly unreachable, agent buffers locally
+Security	TLS everywhere; encrypted storage; signed URLs; role-based access; PCI scope minimized by delegating card handling to the gateway (never touch raw card data)
+Performance	Page count + price shown to customer in < 3 seconds after upload for typical office documents
+Auditability	Every order, payment, and deletion event is logged with timestamp and actor
+Compliance	Retention policy and deletion logging designed to satisfy basic data-privacy expectations for sensitive documents (aligned with India's DPDP Act principles: purpose limitation, storage limitation)
+7. Third-Party Dependencies
+Payment gateway with sub-merchant/route support (Razorpay Route, Cashfree Easy Split, or PayU Marketplace).
+Object storage provider (S3-compatible).
+SMS/WhatsApp Business API (optional, for order status notifications/OTP).
+PDF tooling: Poppler/pdf-lib, LibreOffice headless (for DOCX→PDF conversion).
+8. Project Structure
+Chosen for a 3–6 dev team building this as a real multi-tenant SaaS (not a quick MVP), where several domains (auth, shops, orders, payments, printers, pricing) need to be owned by different people without stepping on each other.
+
+8.1 Backend — Feature-Based (module-per-domain) Structure
+A plain MVC structure gets messy once multiple devs touch orders, payments, and printer-agent logic at once, and Clean Architecture / Microservices are heavier than a first production launch needs. Feature-Based hits the right level: each business domain is a self-contained module (controller → service → repository, same clean flow as MVC + Services, just grouped by feature instead of by layer), which is exactly what the reference guide recommends for "Large SaaS."
+
+src/
+├── modules/
+│   ├── auth/            (customer OTP, shop-admin & platform-admin login, JWT/refresh)
+│   ├── shops/            (tenant CRUD, onboarding, QR/slug generation, retention setting)
+│   ├── orders/           (order lifecycle, order_items, order_files)
+│   ├── pricing/          (price_rules CRUD)
+│   ├── products/         (add-on catalog CRUD)
+│   ├── payments/         (gateway webhooks, sub-merchant onboarding, payouts)
+│   ├── printers/         (printer registration, agent heartbeat, print_jobs)
+│   └── subscriptions/    (platform billing to shops)
+├── common/               (shared middleware, guards, pipes, error handling)
+├── config/
+└── main.ts
+Each module internally follows: controller.ts → service.ts → repository.ts → routes.ts → validation.ts — so the team gets Feature-Based scalability and the clean responsibility separation of MVC + Services inside every module.
+
+8.2 Frontend — Feature-Based Structure, One App, Role-Based Routes
+Since the customer ordering page, shop admin dashboard, and platform admin dashboard will ship as one app with role-based routes (not three separate apps), Feature-Based Structure keeps each surface's code self-contained while sharing layouts, auth, and design tokens.
+
+src/
+├── features/
+│   ├── customer-order/   (upload, options, price, payment, status — the QR-landing flow)
+│   ├── shop-admin/        (overview, order queue, pricing editor, product catalog, history)
+│   ├── platform-admin/    (shop onboarding, subscriptions, platform metrics)
+│   └── auth/              (login/OTP, role-based route guards)
+├── shared/                (design tokens, UI primitives, API client, hooks)
+├── layouts/               (CustomerLayout, ShopAdminLayout, PlatformAdminLayout)
+├── routes/                (role-based route tree, protected routes)
+└── App.tsx
+Route guards in routes/ read the authenticated role (customer, shop_admin, platform_admin) and mount the matching layout + feature set — so one deployable app serves all three surfaces, keeping ops simple while the codebase stays organized like the guide's recommended structure for production apps.
+
+9. Production-Readiness Requirements
+Pulled from the team's Production-Ready Checklist and mapped onto PrintQueue specifically. These are treated as requirements for launch, not nice-to-haves, given this is a real production build.
+
+9.1 Frontend
+Loading states on every async step: upload progress, page-count/price calculation, payment processing, print-job status — no screen should ever look "stuck."
+Error states for network failure, 401/403 (session/role issues), 404 (bad shop slug/QR), 500, with a retry action and plain-language messaging (never a raw stack trace).
+Empty states with a clear next action: e.g. "No orders yet today" / "No products added yet — add your first one."
+Form validation on both sides: required fields, file-type/size limits, price-editor numeric bounds — frontend validation is a UX convenience only, never trusted as the source of truth.
+Debounced search/filter on the Order History and (future) shop-directory views (300–500 ms).
+Pagination on Order History and the platform admin's shop directory — never fetch full history in one query.
+Code splitting per role bundle (customer-order, shop-admin, platform-admin load independently) and lazy-loaded routes.
+Image optimization (product photos, shop logos): compressed, WebP where supported, defined width/height to avoid layout shift.
+Responsive on mobile/tablet/laptop/desktop — the customer flow in particular is mobile-first since it's reached via QR scan.
+Button states (hover/active/disabled/loading) and toast-style notifications instead of browser alert().
+Light theme required at launch; dark theme is a nice-to-have.
+9.2 Backend
+Auth: JWT with refresh tokens; explicit logout/invalidation.
+Authorization: role-based guards for customer, shop_admin, platform_admin, enforced at the API layer (not just hidden in the UI).
+Password hashing with bcrypt for shop-admin/platform-admin accounts; never stored in plain text.
+Rate limiting on all public endpoints, with tighter limits on login/OTP and the upload endpoint.
+Input validation on every endpoint (Zod/Joi/class-validator), independent of any frontend validation — file uploads specifically checked for MIME type and size.
+Consistent error handling with correct HTTP status codes and the standard response shape:
+{ "success": true, "message": "Order created successfully", "data": { } }
+Secrets only via environment variables — never committed; DB URL and gateway keys treated as sensitive config from day one.
+Logging: errors, API requests, and key business events (payment confirmed, job printed, file deleted) — feeding the audit trail already required in §6.
+CORS explicitly scoped to the platform's own domains, credentials configured deliberately (not *).
+9.3 Database
+Indexes on frequently-queried columns: orders(shop_id, status, created_at), order_files(expires_at), payments(gateway_payment_id) (see Backend Schema doc §4).
+Pagination via limit/offset or cursor for order history and shop listings — never unbounded queries.
+Data validation at the DB layer too: required fields, enums (order/payment/print-job status), sensible defaults.
+Soft delete (deleted_at) considered for products and shops (so a removed product/shop can be restored and historical orders still resolve correctly), while order_files keep the hard-delete-after-retention behavior already specified, since that deletion is the privacy guarantee.
+9.4 Security
+HTTPS everywhere; Helmet-equivalent secure headers.
+XSS / SQL-injection / NoSQL-injection protection via parameterized queries and an ORM (e.g. Prisma/TypeORM) rather than raw string-built queries.
+CSRF protection if any cookie-based session is used for the admin dashboards.
+Cookies (if used): HttpOnly, Secure, SameSite.
+Upload security: file-size limit, MIME-type allowlist, extension allowlist — enforced before the file ever reaches the page-counting/conversion pipeline.
+PCI scope stays minimal: card data is only ever seen by the gateway's hosted checkout, never by PrintQueue's own servers (already noted in §6).
+9.5 Performance & SEO
+Gzip/Brotli compression on API responses and static assets.
+API-level caching for read-heavy, rarely-changing data (a shop's price list, product catalog) with short TTLs; Redis is an acceptable V1.1 addition if load requires it.
+CDN-backed storage for product/shop images (Cloudinary/S3+CloudFront class setup).
+Basic technical SEO (favicon, robots.txt, meta title/description) applies mainly to the marketing/landing page and platform sign-up page for shop owners — the customer-facing per-shop ordering page is reached via QR/direct link and doesn't need to rank in search, so SEO effort is prioritized there, not per-shop.
+9.6 Accessibility
+Semantic HTML, labeled form inputs, visible focus indicators, and keyboard navigability across all three surfaces.
+Sufficient color contrast, especially on order-status badges (don't rely on color alone — already reflected in the UI/UX brief).
+Descriptive alt text on shop logos and product images.
+9.7 Testing & Deployment
+Manual test pass covering login/OTP, full order lifecycle (both payment paths), file upload, printer-agent job handoff, pricing/product CRUD, and pagination.
+Cross-browser check (Chrome, Firefox, Edge, Safari) and cross-device check (Android, iPhone, tablet, desktop) before each release, given the customer flow is overwhelmingly mobile.
+Pre-deploy checklist: production build passes, env vars set, DB migrated, SSL active, custom domain connected, no console/network errors, all routes resolve, a real 404 page exists.

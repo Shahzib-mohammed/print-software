@@ -1,0 +1,145 @@
+App Flow Document
+PrintQueue — Self-Service Print-Shop Platform
+1. Customer Flow (Online Payment)
+Online UPI/Card
+
+Yes
+
+No
+
+Customer scans shop's QR code
+
+Lands on shop's ordering page
+
+Uploads document - PDF/DOCX/Image
+
+System converts to PDF & counts pages
+
+Customer selects options: B&W/Color, Sides, Paper type, Add-ons
+
+Live price shown
+
+Payment method?
+
+Redirect to gateway checkout
+
+Payment success?
+
+Order marked PAID
+
+Show retry / choose pay-at-counter
+
+Job pushed to shop's Local Agent
+
+Agent sends job to printer
+
+Status: Printing
+
+Status: Completed
+
+Customer sees 'Ready for pickup' + digital receipt
+
+File auto-deleted after 25 hrs
+
+2. Customer Flow (Pay at Counter / Offline)
+Confirmed
+
+Rejected/No-show
+
+Customer completes upload + options
+
+Chooses 'Pay at Counter'
+
+Order created: PENDING PAYMENT
+
+Shopkeeper's admin dashboard shows new pending order
+
+Shopkeeper accepts payment - cash/UPI/split
+
+Order marked PAID
+
+Order marked CANCELLED
+
+Job pushed to Local Agent
+
+Printer prints job
+
+Shopkeeper marks 'Handed over' - optional
+
+3. Shopkeeper (Shop Admin) Flow
+Shopkeeper logs into Admin Dashboard
+
+Home: Today's & Month's print/revenue summary
+
+What do they want to do?
+
+View live order queue - pending/printing/done
+
+Confirm/reject offline-payment orders
+
+Edit pricing: B&W, color, sides, paper types
+
+Manage product catalog: add item, price, image, info
+
+View/export order & billing history
+
+Configure printer settings via Local Agent link
+
+View/adjust document retention window - within platform limits
+
+4. Local Printer Agent Flow (on Shop PC)
+Yes
+
+No
+
+Agent auto-starts with Windows
+
+Authenticates shop with cloud - stored token
+
+Detects available printers
+
+Wireless/network printer available?
+
+Use wireless printer
+
+Fall back to USB printer
+
+Listen for new PAID jobs - WebSocket
+
+New job received
+
+Download file via signed URL
+
+Send to OS print spooler with selected options
+
+Report status back to cloud: printing/completed/failed
+
+5. Platform Admin Flow
+Platform Admin logs in
+
+Onboard new shop
+
+Collect shop details + bank/KYC via gateway sub-merchant onboarding
+
+Generate unique shop QR code + ordering link
+
+Set subscription plan / commission model
+
+Shop appears in platform dashboard
+
+Monitor platform-wide usage: active shops, GMV, order volume
+
+Suspend/support a shop if needed
+
+6. Payment Settlement Flow (Behind the Scenes)
+Customer pays via gateway checkout
+
+Gateway processes UPI/card payment
+
+Gateway splits payout: shop's share -> shop's linked bank account
+
+Platform's share, if any -> platform's account, per commission model
+
+Webhook confirms payment to PrintQueue backend
+
+Order status updated to PAID, job released to printer

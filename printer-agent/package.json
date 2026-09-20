@@ -1,0 +1,24 @@
+{
+  "name": "printqueue-printer-agent",
+  "version": "1.0.0",
+  "description": "PrintQueue Local Windows Printer Agent (auto-spools paid jobs to attached printers)",
+  "main": "dist/agent.js",
+  "scripts": {
+    "dev": "tsx watch src/agent.ts",
+    "build": "tsc",
+    "start": "node dist/agent.js"
+  },
+  "keywords": ["printqueue", "printer-agent", "windows", "spooler"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-fetch": "^3.3.2",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

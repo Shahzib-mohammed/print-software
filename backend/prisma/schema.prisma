@@ -1,0 +1,258 @@
+// ===================================================================
+// PrintQueue Database Schema (Prisma ORM)
+// Multi-Tenant Self-Service Print-Shop Platform
+// ===================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Provider is SQLite for instant zero-install local testing.
+  // To use PostgreSQL in production, change provider to "postgresql" and update DATABASE_URL.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------------
+// 1. SHOPS (Tenants)
+// Each local print shop is an isolated tenant with its own QR code & slug
+// -------------------------------------------------------------------
+model Shop {
+  id                   String         @id @default(uuid())
+  name                 String         // Shop Name (e.g. "Sri Krishna Xerox & Stationers")
+  slug                 String         @unique // Unique slug for URL: e.g. /shop/krishna-prints
+  logoUrl              String?        // Shop logo displayed on customer ordering page
+  retentionHours       Int            @default(25) // Auto-deletion window (default 25 hours)
+  gatewaySubmerchantId String?        // Linked sub-merchant ID for Cashfree/Razorpay direct settlement
+  status               String         @default("active") // "active" | "suspended" | "onboarding"
+  createdAt            DateTime       @default(now())
+  deletedAt            DateTime?      // Soft delete timestamp
+
+  // Relations
+  shopAdmins           ShopAdmin[]
+  priceRules           PriceRule[]
+  products             Product[]
+  orders               Order[]
+  printers             Printer[]
+  subscriptions        Subscription[]
+
+  @@map("shops")
+}
+
+// -------------------------------------------------------------------
+// 2. SHOP ADMINS (Shopkeepers & Staff)
+// User accounts belonging to a specific shop
+// -------------------------------------------------------------------
+model ShopAdmin {
+  id           String    @id @default(uuid())
+  shopId       String
+  shop         Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name         String
+  email        String    @unique
+  phone        String?
+  passwordHash String
+  role         String    @default("owner") // "owner" | "staff" | "platform_admin"
+  createdAt    DateTime  @default(now())
+
+  @@map("shop_admins")
+}
+
+// -------------------------------------------------------------------
+// 3. PRICE RULES
+// Dynamic pricing matrix configured by each shopkeeper
+// -------------------------------------------------------------------
+model PriceRule {
+  id           String    @id @default(uuid())
+  shopId       String
+  shop         Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  printMode    String    // "bw" | "color"
+  sided        String    // "single" | "double"
+  paperType    String    // "A4 70gsm" | "A4 Glossy" | "A3" etc.
+  pricePerPage Float     // Price per printed side/page in INR
+  effectiveFrom DateTime @default(now())
+  createdAt    DateTime  @default(now())
+
+  @@map("price_rules")
+}
+
+// -------------------------------------------------------------------
+// 4. PRODUCTS (Add-on Catalog)
+// Extra shop items (pens, spiral binding, stapling, folders)
+// -------------------------------------------------------------------
+model Product {
+  id        String    @id @default(uuid())
+  shopId    String
+  shop      Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name      String    // e.g. "Spiral Binding", "Ball Pen", "Clear Folder"
+  price     Float     // Price in INR
+  imageUrl  String?
+  variant   String?   // e.g. "Blue", "Black", "20mm Ring"
+  stockQty  Int?      // Optional inventory tracker
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  deletedAt DateTime? // Soft delete
+
+  @@map("products")
+}
+
+// -------------------------------------------------------------------
+// 5. ORDERS
+// Central order record for both online and counter walk-in customers
+// -------------------------------------------------------------------
+model Order {
+  id            String      @id @default(uuid())
+  orderCode     String      // Short 4-digit pickup code shown on customer screen (e.g. "FP48")
+  shopId        String
+  shop          Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customerPhone String?     // Optional customer phone for status/receipt
+  status        String      @default("created") // "created" | "pending_payment" | "paid" | "printing" | "completed" | "cancelled" | "failed"
+  paymentMethod String?     // "online" | "cash" | "split"
+  totalAmount   Float       // Total order price in INR
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  orderItems    OrderItem[]
+  orderFiles    OrderFile[]
+  payments      Payment[]
+  printJobs     PrintJob[]
+
+  @@map("orders")
+}
+
+// -------------------------------------------------------------------
+// 6. ORDER ITEMS
+// Breakdown of print jobs and add-on products in each order
+// -------------------------------------------------------------------
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type       String   // "print" | "product"
+  productId  String?  // Reference to Product if type == "product"
+  printMode  String?  // "bw" | "color" (if type == "print")
+  sided      String?  // "single" | "double" (if type == "print")
+  paperType  String?  // "A4 70gsm"
+  pageCount  Int?     // Number of pages in the document
+  copies     Int      @default(1)
+  unitPrice  Float    // Price snapshot at the time of placing order
+  lineTotal  Float    // Calculated line item price
+
+  @@map("order_items")
+}
+
+// -------------------------------------------------------------------
+// 7. ORDER FILES
+// Documents uploaded by customers with automatic expiration
+// -------------------------------------------------------------------
+model OrderFile {
+  id               String        @id @default(uuid())
+  orderId          String
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storageKey       String        // File path on disk or cloud storage
+  originalFilename String        // Original name uploaded by customer
+  pageCount        Int           // Detected page count
+  convertedPdfKey  String?       // Normalized PDF path (if original was docx/image)
+  expiresAt        DateTime      // Auto-deletion deadline (createdAt + retentionHours)
+  deletedAt        DateTime?     // When the file was safely deleted
+  createdAt        DateTime      @default(now())
+
+  // Relations
+  deletionLogs     DeletionLog[]
+
+  @@map("order_files")
+}
+
+// -------------------------------------------------------------------
+// 8. PAYMENTS
+// Transaction records for online gateway and offline counter payments
+// -------------------------------------------------------------------
+model Payment {
+  id                 String   @id @default(uuid())
+  orderId            String
+  order              Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  gateway            String   @default("cashfree") // "cashfree" | "razorpay" | "offline_cash"
+  gatewayPaymentId   String?  // Unique payment ID from gateway
+  gatewayOrderId     String?  // Order ID generated by gateway
+  amount             Float    // Amount paid in INR
+  status             String   @default("initiated") // "initiated" | "success" | "failed" | "refunded"
+  method             String?  // "upi" | "card" | "netbanking" | "cash"
+  shopPayoutStatus   String   @default("pending")   // "pending" | "settled"
+  rawWebhookPayload  String?  // JSON string of webhook payload for auditing
+  createdAt          DateTime @default(now())
+
+  @@map("payments")
+}
+
+// -------------------------------------------------------------------
+// 9. PRINTERS
+// Hardware printers detected on the shop's PC via Local Agent
+// -------------------------------------------------------------------
+model Printer {
+  id             String     @id @default(uuid())
+  shopId         String
+  shop           Shop       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name           String     // Name registered in Windows (e.g. "Canon LBP2900B")
+  connectionType String     @default("wireless") // "wireless" | "usb"
+  isDefault      Boolean    @default(true)
+  printerType    String     @default("all") // "all" | "bw" | "color" (per user's Decision 4)
+  lastSeenAt     DateTime?  // Last heartbeat ping from Local Agent
+  status         String     @default("offline") // "online" | "offline"
+  createdAt      DateTime   @default(now())
+
+  // Relations
+  printJobs      PrintJob[]
+
+  @@map("printers")
+}
+
+// -------------------------------------------------------------------
+// 10. PRINT JOBS
+// Real-time spooling queue dispatched to the Shop's Local Agent
+// -------------------------------------------------------------------
+model PrintJob {
+  id           String    @id @default(uuid())
+  orderId      String
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  printerId    String?
+  printer      Printer?  @relation(fields: [printerId], references: [id], onDelete: SetNull)
+  status       String    @default("queued") // "queued" | "sent_to_agent" | "printing" | "completed" | "failed"
+  attempts     Int       @default(0)
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("print_jobs")
+}
+
+// -------------------------------------------------------------------
+// 11. DELETION LOGS
+// Audit trail proving customer documents were safely purged
+// -------------------------------------------------------------------
+model DeletionLog {
+  id          String    @id @default(uuid())
+  orderFileId String
+  orderFile   OrderFile @relation(fields: [orderFileId], references: [id], onDelete: Cascade)
+  deletedAt   DateTime  @default(now())
+  method      String    @default("scheduled_job") // "lifecycle_rule" | "scheduled_job" | "manual"
+
+  @@map("deletion_logs")
+}
+
+// -------------------------------------------------------------------
+// 12. SUBSCRIPTIONS
+// Platform SaaS billing to shops
+// -------------------------------------------------------------------
+model Subscription {
+  id            String    @id @default(uuid())
+  shopId        String
+  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  plan          String    @default("standard") // "free" | "standard" | "pro"
+  commissionPct Float?    // Optional commission percentage
+  status        String    @default("active")   // "active" | "past_due" | "cancelled"
+  renewsAt      DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@map("subscriptions")
+}
